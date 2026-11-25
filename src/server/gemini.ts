@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { getAllProducts, updateProduct, getProductById } from './db.ts';
+import { runPythonProcessorAsync } from './pythonBridge.ts';
 
 /**
  * Dynamically retrieve or initialize GoogleGenAI client with the active environment API key
@@ -20,8 +21,8 @@ function getAiClient(): GoogleGenAI | null {
 /**
  * AI Product Comparison using live database records
  */
-export async function compareProductsWithAI(productIds: string[]) {
-  const allProducts = getAllProducts();
+export async function compareProductsWithAI(productIds: string[], includeRestricted = false) {
+  const allProducts = getAllProducts({ includeRestricted });
   const selected = allProducts.filter(
     (p: any) => productIds.includes(p.id) || productIds.includes(p.sku)
   );
@@ -91,80 +92,8 @@ Output only valid JSON, without markdown formatting or backticks.`;
     }
   }
 
-  // Deterministic high-fidelity engineering fallback
-  return generateDeterministicComparison(selected);
-}
-
-function generateDeterministicComparison(products: any[]) {
-  const skus = products.map((p) => p.sku);
-  const matrix: any[] = [
-    {
-      criteria: 'Cost & Acquisition',
-      values: Object.fromEntries(
-        products.map((p) => [
-          p.sku,
-          `$${p.price_usd.toLocaleString()} FOB (Lead time: ${p.lead_time_days} days)`,
-        ])
-      ),
-      winnerSku: products.reduce((prev, curr) => (prev.price_usd < curr.price_usd ? prev : curr)).sku,
-    },
-    {
-      criteria: 'Quality & Manufacturing Standards',
-      values: Object.fromEntries(
-        products.map((p) => [p.sku, (p.certifications || ['ISO 9001:2015']).join(' • ')])
-      ),
-      winnerSku: null,
-    },
-  ];
-
-  // Add specific spec comparisons
-  const specKeySet = new Set<string>();
-  products.forEach((p) => p.specifications.forEach((s: any) => specKeySet.add(s.key)));
-
-  specKeySet.forEach((key) => {
-    const valMap: Record<string, string> = {};
-    products.forEach((p) => {
-      const match = p.specifications.find((s: any) => s.key === key);
-      valMap[p.sku] = match ? `${match.value} ${match.unit || ''}`.trim() : 'N/A';
-    });
-    matrix.push({
-      criteria: key,
-      values: valMap,
-      winnerSku: null,
-    });
-  });
-
-  const recommendations = products.map((p) => {
-    const isHydraulics = p.category_slug === 'hydraulics';
-    const isFiltration = p.category_slug === 'filtration';
-    const isCnc = p.category_slug === 'cnc-machining';
-
-    return {
-      sku: p.sku,
-      bestFor: isHydraulics
-        ? 'High pressure heavy machinery, hydraulic power packs, and maritime fluid transfer'
-        : isFiltration
-        ? 'Continuous slurry filtration, chemical processing, and pigment separation'
-        : isCnc
-        ? 'High-precision aerospace manifolds or biomedical implant assemblies'
-        : 'Offshore rig emergency rescue, maritime safety, and workboat operations',
-      pros: [
-        `Verified ISO 9001:2015 engineering specifications with ${p.lead_time_days}-day lead time`,
-        `Direct integration compatibility with HY Precision Technology standard assemblies`,
-      ],
-      cons: [
-        p.stock_quantity <= 5
-          ? 'Limited live inventory, consider pre-ordering for volume production'
-          : 'Requires certified technician for initial commissioning',
-      ],
-    };
-  });
-
-  return {
-    summary: `Technical comparison between ${skus.join(' vs ')}. Evaluated across operating parameters, engineering certifications, lead times, and application lifecycle costs.`,
-    matrix,
-    recommendations,
-  };
+  // Python data processor builds normalized specification matrix & engineering comparison
+  return await runPythonProcessorAsync('build_comparison_matrix', { products: selected });
 }
 
 /**
@@ -175,13 +104,19 @@ export async function handleAiDatabaseAgent(
   userRole: 'admin' | 'buyer' = 'buyer',
   history: { role: string; text: string }[] = []
 ) {
-  const sanitizedPrompt = String(prompt || '').trim().slice(0, 2000);
+  const preprocessedQuery = await runPythonProcessorAsync<{
+    sanitizedPrompt: string;
+    cleanedHistory: { role: string; text: string }[];
+  }>('preprocess_ai_query', { prompt, history });
+
+  const sanitizedPrompt = preprocessedQuery.sanitizedPrompt;
   if (!sanitizedPrompt) {
     throw new Error('Query prompt is required.');
   }
 
   // Always load authoritative inventory and prices directly from SQLite (never trust client-supplied prices)
-  const rawProducts = getAllProducts();
+  // Restricted Governmental & Defense division items are only included for server-verified admins
+  const rawProducts = getAllProducts({ includeRestricted: userRole === 'admin' });
 
   const inventorySnapshot = rawProducts.map((p: any) => ({
     id: p.id,
@@ -196,15 +131,10 @@ export async function handleAiDatabaseAgent(
     certifications: p.certifications || [],
   }));
 
-  const safeHistory = Array.isArray(history)
-    ? history
-        .slice(-8)
-        .filter((h) => h && typeof h.text === 'string' && h.text.trim().length > 0)
-        .map((h) => ({
-          role: h.role === 'assistant' || h.role === 'model' ? 'model' : 'user',
-          parts: [{ text: h.text.trim().slice(0, 1500) }],
-        }))
-    : [];
+  const safeHistory = preprocessedQuery.cleanedHistory.map((h) => ({
+    role: h.role === 'model' ? 'model' : 'user',
+    parts: [{ text: h.text }],
+  }));
 
   const ai = getAiClient();
   if (ai) {
@@ -231,8 +161,11 @@ Joint Venture Background & Facilities:
   3. Fibre Shark GRP Workboats: Thick solid laminate pilot launches (Pilot 1050) and high-speed commercial catamarans (Fast Passenger Cat 1400 with 48 seats).
   4. HDPE Indestructible Workboats: High-Density Polyethylene hulls that absorb high-impact collisions and ballistic shrapnel, zero corrosion, no painting/anodes needed, backed by an exclusive 5-year hull warranty.
   5. EO Lifesaving & Davit Systems: SOLAS TEMPSC enclosed lifeboats, Freefall Lifeboats FF 600 (25m drop), Fast Rescue Boats FRB 650 with Castoldi waterjets, and hydraulic slewing davit launching systems (SWL 25kN).
-  6. AquaCat Modular Catamarans: AquaCat 13.60m modular catamarans engineered with containerized AQ Lego modular kits fitting inside standard 40ft sea shipping containers.
-  7. Governmental & Military Support: Multi-Role Fast Attack Patrol 2380 (23.8m flagship, twin 1400 HP MAN Rollo diesels, 42 knots, armored wheelhouse, stern slipway ramp for 5.5m boarding RHIB), GRP Unmanned Surface Vehicle USV Patrol 5.60 JET (Simrad Halo20+, triple-sensor PTZ thermal camera, Starlink BLOS satellite control), and Type 8.7 Inland Fast Response.
+  6. AquaCat Modular Catamarans: AquaCat 13.60m modular catamarans engineered with containerized AQ Lego modular kits fitting inside standard 40ft sea shipping containers.${
+    userRole === 'admin'
+      ? `\n  7. Governmental & Military Support (Unlocked Admin Access): Multi-Role Fast Attack Patrol 2380, GRP Unmanned Surface Vehicle USV Patrol 5.60 JET, and Type 8.7 Inland Fast Response.`
+      : `\n  7. Governmental & Military Support: Password-protected division (available after Admin passcode sign-in).`
+  }
 - Quotation Standards (Sample PDF Offer Structure):
   * Official Reference Format: HPT/[REF_ID]/[MONTH]/[YEAR] R0 (e.g. HPT/256/10/26 R0).
   * Milestone Payments: 30% advance on PO, 30% hull structure completion, 30% mechanical/engine installation and SAT readiness, 10% against shipping documents.

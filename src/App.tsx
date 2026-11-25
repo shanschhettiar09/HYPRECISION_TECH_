@@ -35,29 +35,46 @@ export default function App() {
   const [formalOfferData, setFormalOfferData] = useState<FormalQuotationOffer | null>(null);
   const [adminToken, setAdminToken] = useState<string | null>(null);
 
-  // Fetch live products and categories from backend
-  const fetchData = async () => {
+  // Fetch live products and categories from backend (passing adminToken when unlocked)
+  const fetchData = async (tokenOverride?: string | null) => {
+    const activeToken = tokenOverride !== undefined ? tokenOverride : adminToken;
     try {
       const [prodRes, catRes] = await Promise.all([
-        fetch('/api/products'),
+        fetch('/api/products', {
+          headers: activeToken ? { Authorization: `Bearer ${activeToken}` } : {},
+        }),
         fetch('/api/categories'),
       ]);
 
       if (prodRes.ok) {
-        const prodData = await prodRes.json();
+        const prodData: ProductItem[] = await prodRes.json();
         setProducts(prodData);
         setDbHealthy(true);
 
-        // Pre-select 2 vessels for comparison if none selected yet, so Compare badge shows 2 as in prototype photo!
-        if (selectedForCompare.length === 0 && prodData.length >= 2) {
-          const st80 = prodData.find((p: ProductItem) => p.sku === 'ST-80-TUG');
-          const pat2380 = prodData.find((p: ProductItem) => p.sku === 'MIL-PATROL-2380');
-          if (st80 && pat2380) {
-            setSelectedForCompare([st80, pat2380]);
-          } else {
-            setSelectedForCompare([prodData[0], prodData[1]]);
-          }
+        if (!activeToken) {
+          setSelectedForCompare((prev) =>
+            prev.filter((item) => item.category_slug !== 'governmental-military')
+          );
+          setDetailProduct((prev) =>
+            prev?.category_slug === 'governmental-military' ? null : prev
+          );
         }
+
+        // Pre-select 2 vessels for comparison if none selected yet
+        setSelectedForCompare((prev) => {
+          const validPrev = activeToken
+            ? prev
+            : prev.filter((item) => item.category_slug !== 'governmental-military');
+          if (validPrev.length > 0 || prodData.length < 2) {
+            return validPrev;
+          }
+          const st80 = prodData.find((p) => p.sku === 'ST-80-TUG');
+          const pat2380 = prodData.find((p) => p.sku === 'MIL-PATROL-2380');
+          if (st80 && pat2380) {
+            return [st80, pat2380];
+          }
+          return [prodData[0], prodData[1]];
+        });
       } else {
         setDbHealthy(false);
       }
@@ -75,8 +92,21 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    fetchData(adminToken);
+  }, [adminToken]);
+
+  const handleAdminLogout = async () => {
+    try {
+      if (adminToken) {
+        await fetch('/api/admin/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${adminToken}` },
+        });
+      }
+    } finally {
+      setAdminToken(null);
+    }
+  };
 
   useEffect(() => {
     const cleanup = startSmoothScroll();
@@ -147,6 +177,12 @@ export default function App() {
     const target = products.find((p) => p.sku === sku || p.id === sku);
     if (target) {
       setDetailProduct(target);
+    } else if (!adminToken) {
+      setSelectedCategory('governmental-military');
+      const catalogElem = document.getElementById('fleet-catalogue');
+      if (catalogElem) {
+        catalogElem.scrollIntoView({ behavior: 'smooth' });
+      }
     } else if (products.length > 0) {
       setDetailProduct(products[0]);
     }
@@ -228,6 +264,9 @@ export default function App() {
           onViewFormalOffer={(p) => handleOpenFormalOffer(p)}
           externalSearch={searchQuery}
           onResetSearch={() => setSearchQuery('')}
+          adminToken={adminToken}
+          onAdminTokenChange={setAdminToken}
+          onAdminLogout={handleAdminLogout}
         />
       </main>
 

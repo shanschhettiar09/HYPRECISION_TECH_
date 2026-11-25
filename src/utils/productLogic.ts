@@ -4,6 +4,7 @@ export type { ProductItem, ProductSpecification };
 
 export interface FilterOptions {
   categorySlug?: string;
+  excludeCategorySlugs?: string[];
   searchTerm?: string;
   minPrice?: number;
   maxPrice?: number;
@@ -19,6 +20,15 @@ export function filterAndSortProducts(
   options: FilterOptions
 ): ProductItem[] {
   let list = [...products];
+
+  if (options.excludeCategorySlugs && options.excludeCategorySlugs.length > 0) {
+    const excluded = new Set(options.excludeCategorySlugs);
+    list = list.filter(
+      (p) =>
+        !(p.category_slug && excluded.has(p.category_slug)) &&
+        !(p.category_id && excluded.has(p.category_id))
+    );
+  }
 
   if (options.categorySlug && options.categorySlug !== 'all') {
     list = list.filter(

@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import fs from 'node:fs';
 import { generateQuotationRefNumber } from '../utils/quotationDocument.ts';
+import { runPythonProcessorSync } from './pythonBridge.ts';
 
 const DB_DIR = path.resolve(process.cwd(), 'data');
 if (!fs.existsSync(DB_DIR)) {
@@ -1023,6 +1024,7 @@ export function getAllProducts(filters?: {
   search?: string;
   minPrice?: number;
   maxPrice?: number;
+  includeRestricted?: boolean;
 }) {
   let sql = `
     SELECT p.*, c.name as category_name, c.slug as category_slug
@@ -1031,6 +1033,10 @@ export function getAllProducts(filters?: {
     WHERE p.is_active = 1
   `;
   const params: (string | number)[] = [];
+
+  if (!filters?.includeRestricted || filters?.categorySlug === 'all') {
+    sql += ` AND c.slug != 'governmental-military'`;
+  }
 
   if (filters?.categorySlug && filters.categorySlug !== 'all') {
     sql += ` AND c.slug = ?`;
@@ -1065,7 +1071,7 @@ export function getAllProducts(filters?: {
     ORDER BY is_highlight DESC, spec_key ASC
   `);
 
-  return products.map((prod) => {
+  const assembled = products.map((prod) => {
     const specs = specStmt.all(prod.id) as any[];
     return {
       ...prod,
@@ -1078,6 +1084,11 @@ export function getAllProducts(filters?: {
       })),
     };
   });
+
+  const preprocessed = runPythonProcessorSync<{ products: any[] }>('preprocess_catalog', {
+    products: assembled,
+  });
+  return preprocessed.products;
 }
 
 /**
@@ -1120,24 +1131,27 @@ export function getProductById(idOrSku: string) {
   };
 }
 
-function isSafeAssetUrl(url: string): boolean {
-  const trimmed = url.trim();
-  if (!trimmed) return false;
-  if (trimmed.startsWith('/')) {
-    return !trimmed.startsWith('//');
-  }
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
-  } catch {
-    return false;
-  }
-}
-
 const VALID_RFQ_STATUSES = new Set(['PENDING', 'QUOTED', 'APPROVED', 'ARCHIVED']);
 
+interface PreprocessedProductPayload {
+  product: {
+    category_id?: string;
+    sku?: string;
+    title?: string;
+    short_desc?: string;
+    description?: string;
+    price_usd?: number;
+    stock_quantity?: number;
+    min_order_quantity?: number;
+    lead_time_days?: number;
+    image_url?: string;
+    certifications?: string[];
+  };
+  specifications: { key: string; value: string; unit?: string; highlight?: boolean }[] | null;
+}
+
 /**
- * Insert new product with specifications
+ * Insert new product with Python-preprocessed data & specifications
  */
 export function createProduct(
   data: {
@@ -1155,44 +1169,18 @@ export function createProduct(
   },
   specifications: { key: string; value: string; unit?: string; highlight?: boolean }[] = []
 ) {
-  const sku = String(data.sku || '').trim().toUpperCase();
-  const title = String(data.title || '').trim();
-  if (sku.length < 3 || sku.length > 64) {
-    throw new Error('SKU must be between 3 and 64 characters.');
-  }
-  if (title.length < 3 || title.length > 200) {
-    throw new Error('Product title must be between 3 and 200 characters.');
-  }
-
-  const price = Number(data.price_usd);
-  if (!Number.isFinite(price) || price < 0) {
-    throw new Error('Price must be a non-negative finite number.');
-  }
-
-  const stock = Number(data.stock_quantity);
-  if (!Number.isInteger(stock) || stock < 0) {
-    throw new Error('Stock quantity must be a non-negative integer.');
-  }
-
-  const minOrderQty = data.min_order_quantity !== undefined ? Number(data.min_order_quantity) : 1;
-  if (!Number.isInteger(minOrderQty) || minOrderQty < 1) {
-    throw new Error('Minimum order quantity must be at least 1.');
-  }
-
-  const leadTime = data.lead_time_days !== undefined ? Number(data.lead_time_days) : 7;
-  if (!Number.isInteger(leadTime) || leadTime < 0) {
-    throw new Error('Lead time days must be a non-negative integer.');
-  }
-
-  const imageUrl = data.image_url?.trim() || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800';
-  if (!isSafeAssetUrl(imageUrl)) {
-    throw new Error('Image URL must be an https/http URL or relative / path.');
-  }
+  const { product: clean, specifications: cleanSpecs } =
+    runPythonProcessorSync<PreprocessedProductPayload>('preprocess_product', {
+      mode: 'create',
+      data,
+      specifications,
+    });
+  const finalSpecs = cleanSpecs || [];
 
   db.exec('BEGIN TRANSACTION;');
   try {
     const id = 'prod_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
-    const certString = (data.certifications || ['ISO 9001:2015', 'CE']).join(',');
+    const certString = (clean.certifications || ['ISO 9001:2015', 'CE']).join(',');
 
     db.prepare(`
       INSERT INTO products (
@@ -1202,16 +1190,16 @@ export function createProduct(
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
       id,
-      String(data.category_id || '').trim(),
-      sku,
-      title,
-      String(data.short_desc || '').trim(),
-      String(data.description || data.short_desc || '').trim(),
-      price,
-      stock,
-      minOrderQty,
-      leadTime,
-      imageUrl,
+      clean.category_id!,
+      clean.sku!,
+      clean.title!,
+      clean.short_desc || '',
+      clean.description || '',
+      clean.price_usd!,
+      clean.stock_quantity!,
+      clean.min_order_quantity ?? 1,
+      clean.lead_time_days ?? 7,
+      clean.image_url!,
       certString
     );
 
@@ -1220,13 +1208,13 @@ export function createProduct(
       VALUES (?, ?, ?, ?, ?, ?)
     `);
 
-    specifications.forEach((spec, idx) => {
+    finalSpecs.forEach((spec, idx) => {
       insertSpec.run(
         `sp_${id}_${idx}`,
         id,
-        String(spec.key || '').trim(),
-        String(spec.value || '').trim(),
-        String(spec.unit || '').trim(),
+        spec.key,
+        spec.value,
+        spec.unit || '',
         spec.highlight ? 1 : 0
       );
     });
@@ -1234,7 +1222,7 @@ export function createProduct(
     db.prepare(`
       INSERT INTO audit_logs (action, entity_type, entity_id, details)
       VALUES ('CREATE_PRODUCT', 'PRODUCT', ?, ?)
-    `).run(id, `Created product SKU ${sku} with ${specifications.length} specifications.`);
+    `).run(id, `Created product SKU ${clean.sku} with ${finalSpecs.length} preprocessed specifications.`);
 
     db.exec('COMMIT;');
     return getProductById(id);
@@ -1245,7 +1233,7 @@ export function createProduct(
 }
 
 /**
- * Update product
+ * Update product using Python preprocessing & validation
  */
 export function updateProduct(
   idOrSku: string,
@@ -1261,6 +1249,13 @@ export function updateProduct(
   }>,
   specifications?: { key: string; value: string; unit?: string; highlight?: boolean }[]
 ) {
+  const { product: clean, specifications: cleanSpecs } =
+    runPythonProcessorSync<PreprocessedProductPayload>('preprocess_product', {
+      mode: 'update',
+      data,
+      specifications: specifications ?? null,
+    });
+
   db.exec('BEGIN TRANSACTION;');
   try {
     const existing = db
@@ -1274,57 +1269,37 @@ export function updateProduct(
     const updates: string[] = [];
     const params: (string | number)[] = [];
 
-    if (data.title !== undefined) {
-      const title = String(data.title).trim();
-      if (title.length < 3 || title.length > 200) {
-        throw new Error('Title must be between 3 and 200 characters.');
-      }
+    if (clean.title !== undefined) {
       updates.push('title = ?');
-      params.push(title);
+      params.push(clean.title);
     }
-    if (data.price_usd !== undefined) {
-      const price = Number(data.price_usd);
-      if (!Number.isFinite(price) || price < 0) {
-        throw new Error('Price must be a non-negative finite number.');
-      }
+    if (clean.price_usd !== undefined) {
       updates.push('price_usd = ?');
-      params.push(price);
+      params.push(clean.price_usd);
     }
-    if (data.stock_quantity !== undefined) {
-      const stock = Number(data.stock_quantity);
-      if (!Number.isFinite(stock) || !Number.isInteger(stock) || stock < 0) {
-        throw new Error('Stock quantity must be a non-negative integer.');
-      }
+    if (clean.stock_quantity !== undefined) {
       updates.push('stock_quantity = ?');
-      params.push(stock);
+      params.push(clean.stock_quantity);
     }
-    if (data.lead_time_days !== undefined) {
-      const lead = Number(data.lead_time_days);
-      if (!Number.isFinite(lead) || !Number.isInteger(lead) || lead < 0) {
-        throw new Error('Lead time days must be a non-negative integer.');
-      }
+    if (clean.lead_time_days !== undefined) {
       updates.push('lead_time_days = ?');
-      params.push(lead);
+      params.push(clean.lead_time_days);
     }
-    if (data.short_desc !== undefined) {
+    if (clean.short_desc !== undefined) {
       updates.push('short_desc = ?');
-      params.push(String(data.short_desc).trim());
+      params.push(clean.short_desc);
     }
-    if (data.description !== undefined) {
+    if (clean.description !== undefined) {
       updates.push('description = ?');
-      params.push(String(data.description).trim());
+      params.push(clean.description);
     }
-    if (data.category_id !== undefined) {
+    if (clean.category_id !== undefined) {
       updates.push('category_id = ?');
-      params.push(String(data.category_id).trim());
+      params.push(clean.category_id);
     }
-    if (data.image_url !== undefined) {
-      const url = String(data.image_url).trim();
-      if (!isSafeAssetUrl(url)) {
-        throw new Error('Image URL must be an https/http URL or relative / path.');
-      }
+    if (clean.image_url !== undefined) {
       updates.push('image_url = ?');
-      params.push(url);
+      params.push(clean.image_url);
     }
 
     updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -1334,19 +1309,19 @@ export function updateProduct(
       db.prepare(`UPDATE products SET ${updates.join(', ')} WHERE id = ?`).run(...params);
     }
 
-    if (specifications && Array.isArray(specifications)) {
+    if (cleanSpecs && Array.isArray(cleanSpecs)) {
       db.prepare('DELETE FROM product_specifications WHERE product_id = ?').run(targetId);
       const insertSpec = db.prepare(`
         INSERT INTO product_specifications (id, product_id, spec_key, spec_value, unit, is_highlight)
         VALUES (?, ?, ?, ?, ?, ?)
       `);
-      specifications.forEach((spec, idx) => {
+      cleanSpecs.forEach((spec, idx) => {
         insertSpec.run(
           `sp_${targetId}_${idx}`,
           targetId,
-          String(spec.key || '').trim(),
-          String(spec.value || '').trim(),
-          String(spec.unit || '').trim(),
+          spec.key,
+          spec.value,
+          spec.unit || '',
           spec.highlight ? 1 : 0
         );
       });
@@ -1396,7 +1371,7 @@ export function getAllCategories() {
 }
 
 /**
- * RFQ (Request For Quotation) operations
+ * RFQ (Request For Quotation) operations with Python preprocessing & validation
  */
 export function createQuotationRequest(data: {
   product_id?: string;
@@ -1408,27 +1383,23 @@ export function createQuotationRequest(data: {
   custom_specs?: string;
   reference_no?: string;
 }) {
-  const customerName = String(data.customer_name || '').trim();
-  const email = String(data.email || '').trim();
-  if (customerName.length < 2 || customerName.length > 120) {
-    throw new Error('Customer name must be between 2 and 120 characters.');
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 180) {
-    throw new Error('Valid email address is required.');
-  }
-
-  const rawQty = data.quantity_requested === undefined ? 1 : Number(data.quantity_requested);
-  if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 1000) {
-    throw new Error('Requested quantity must be an integer between 1 and 1000.');
-  }
+  const cleanRfq = runPythonProcessorSync<{
+    product_id: string | null;
+    customer_name: string;
+    company_name: string;
+    email: string;
+    phone: string;
+    quantity_requested: number;
+    custom_specs: string;
+  }>('preprocess_rfq', { data });
 
   let validatedProductId: string | null = null;
-  if (data.product_id) {
-    const prodExists = db.prepare('SELECT id FROM products WHERE id = ?').get(String(data.product_id));
+  if (cleanRfq.product_id) {
+    const prodExists = db.prepare('SELECT id FROM products WHERE id = ?').get(cleanRfq.product_id);
     if (!prodExists) {
       throw new Error('Referenced product does not exist.');
     }
-    validatedProductId = String(data.product_id);
+    validatedProductId = cleanRfq.product_id;
   }
 
   const id = 'rfq_' + Date.now();
@@ -1443,12 +1414,12 @@ export function createQuotationRequest(data: {
     id,
     refNo,
     validatedProductId,
-    customerName,
-    String(data.company_name || '').trim().slice(0, 150),
-    email,
-    String(data.phone || '').trim().slice(0, 50),
-    rawQty,
-    String(data.custom_specs || '').trim().slice(0, 2000)
+    cleanRfq.customer_name,
+    cleanRfq.company_name,
+    cleanRfq.email,
+    cleanRfq.phone,
+    cleanRfq.quantity_requested,
+    cleanRfq.custom_specs
   );
 
   db.prepare(`
@@ -1540,22 +1511,10 @@ export function claimAdminPasswordHash(hash: string): boolean {
 }
 
 /**
- * Get system statistics
+ * Get system statistics computed via Python read-only SQLite analytics
  */
 export function getSystemStats() {
-  const productsCount = (db.prepare('SELECT COUNT(*) as c FROM products').get() as any)?.c || 0;
-  const categoriesCount = (db.prepare('SELECT COUNT(*) as c FROM categories').get() as any)?.c || 0;
-  const rfqsCount = (db.prepare('SELECT COUNT(*) as c FROM quotation_requests').get() as any)?.c || 0;
-  const lowStockCount = (db.prepare('SELECT COUNT(*) as c FROM products WHERE stock_quantity <= 5').get() as any)?.c || 0;
-  const recentLogs = db.prepare('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 10').all();
-
-  return {
-    productsCount,
-    categoriesCount,
-    rfqsCount,
-    lowStockCount,
-    recentLogs,
-  };
+  return runPythonProcessorSync('compute_fleet_analytics', { dbPath: DB_PATH });
 }
 
 // Automatically initialize on import

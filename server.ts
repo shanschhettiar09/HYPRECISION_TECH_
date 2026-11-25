@@ -119,10 +119,19 @@ app.post('/api/admin/auth/logout', (req, res) => {
 // REST API ENDPOINTS
 // ---------------------------------------------------------------------------
 
-// 1. GET Products with filter (Public catalog read)
+// 1. GET Products with filter (Public catalog read; Governmental & Defense division requires admin auth)
 app.get('/api/products', (req, res) => {
   try {
     const { category, search, minPrice, maxPrice } = req.query;
+    const isAuthed = isAdminAuthenticated(req);
+    const categorySlug = typeof category === 'string' ? category : undefined;
+
+    if (categorySlug === 'governmental-military' && !isAuthed) {
+      return res.status(401).json({
+        error: 'Admin passcode authentication required to access Governmental & Defense division.',
+      });
+    }
+
     const parsedMin = minPrice !== undefined ? Number(minPrice) : undefined;
     const parsedMax = maxPrice !== undefined ? Number(maxPrice) : undefined;
 
@@ -134,10 +143,11 @@ app.get('/api/products', (req, res) => {
     }
 
     const products = getAllProducts({
-      categorySlug: typeof category === 'string' ? category : undefined,
+      categorySlug,
       search: typeof search === 'string' ? search.slice(0, 120) : undefined,
       minPrice: parsedMin,
       maxPrice: parsedMax,
+      includeRestricted: isAuthed,
     });
     res.json(products);
   } catch (err: any) {
@@ -146,12 +156,17 @@ app.get('/api/products', (req, res) => {
   }
 });
 
-// 2. GET Single Product (Public catalog read)
+// 2. GET Single Product (Public catalog read; Governmental & Defense division requires admin auth)
 app.get('/api/products/:id', (req, res) => {
   try {
     const product = getProductById(req.params.id);
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
+    }
+    if (product.category_slug === 'governmental-military' && !isAdminAuthenticated(req)) {
+      return res.status(401).json({
+        error: 'Admin passcode authentication required to view Governmental & Defense vessels.',
+      });
     }
     res.json(product);
   } catch (err: any) {
@@ -213,14 +228,14 @@ app.get('/api/categories', (_req, res) => {
   }
 });
 
-// 7. POST AI Comparison (Public read-only analysis from authoritative DB)
+// 7. POST AI Comparison (Public read-only analysis; restricted vessels require admin auth)
 app.post('/api/ai/compare', async (req, res) => {
   try {
     const { productIds } = req.body;
     if (!productIds || !Array.isArray(productIds) || productIds.length < 2 || productIds.length > 5) {
       return res.status(400).json({ error: 'Provide between 2 and 5 product IDs to compare' });
     }
-    const comparison = await compareProductsWithAI(productIds.map(String));
+    const comparison = await compareProductsWithAI(productIds.map(String), isAdminAuthenticated(req));
     res.json(comparison);
   } catch (err: any) {
     console.error('AI comparison error:', err);
@@ -250,9 +265,17 @@ app.post('/api/ai/query-manager', async (req, res) => {
 });
 
 // 9. RFQ Endpoints
-// Public RFQ submission (strictly validated server-side for positive integer quantity and fields)
+// Public RFQ submission (strictly validated server-side; restricted division requires admin auth)
 app.post('/api/rfq', (req, res) => {
   try {
+    if (req.body?.product_id) {
+      const targetProd = getProductById(String(req.body.product_id));
+      if (targetProd?.category_slug === 'governmental-military' && !isAdminAuthenticated(req)) {
+        return res.status(401).json({
+          error: 'Admin passcode authentication required to request a quotation for Governmental & Defense vessels.',
+        });
+      }
+    }
     const rfq = createQuotationRequest(req.body);
     res.status(201).json(rfq);
   } catch (err: any) {
@@ -287,6 +310,11 @@ app.get('/api/quotations/product/:id', (req, res) => {
     const prod = getProductById(req.params.id);
     if (!prod) {
       return res.status(404).json({ error: 'Vessel product not found' });
+    }
+    if (prod.category_slug === 'governmental-military' && !isAdminAuthenticated(req)) {
+      return res.status(401).json({
+        error: 'Admin passcode authentication required for Governmental & Defense quotations.',
+      });
     }
     const offer = generateFormalQuotationOffer(prod);
     res.json(offer);

@@ -496,9 +496,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <h3 className="font-editorial text-xl sm:text-2xl font-bold">
                   Relational Database & Management Console
                 </h3>
-                <span className="mono text-[9px] text-[#FF6B52] border border-[#FF6B52]/40 px-1.5 py-0.5">
-                  SQLITE ACID ACTIVE
-                </span>
               </div>
               <p className="mono text-[10px] text-white/50 tracking-wider">
                 Full CRUD control over inventory, specifications, and RFQ client submissions

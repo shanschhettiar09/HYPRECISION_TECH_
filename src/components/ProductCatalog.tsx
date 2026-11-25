@@ -7,6 +7,10 @@ import {
   X,
   Filter,
   Check,
+  Lock,
+  ShieldCheck,
+  KeyRound,
+  LogOut,
 } from 'lucide-react';
 import { ProductItem } from '../types.ts';
 import { filterAndSortProducts, FilterOptions } from '../utils/productLogic.ts';
@@ -25,6 +29,9 @@ interface ProductCatalogProps {
   onViewFormalOffer?: (product: ProductItem) => void;
   externalSearch?: string;
   onResetSearch?: () => void;
+  adminToken: string | null;
+  onAdminTokenChange: (token: string | null) => void;
+  onAdminLogout: () => void;
 }
 
 export const ProductCatalog: React.FC<ProductCatalogProps> = ({
@@ -37,6 +44,9 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   onRequestQuote,
   externalSearch = '',
   onResetSearch,
+  adminToken,
+  onAdminTokenChange,
+  onAdminLogout,
 }) => {
   const [searchTerm, setSearchTerm] = useState(externalSearch);
   const [inStockOnly, setInStockOnly] = useState(false);
@@ -44,14 +54,101 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   const [maxPriceFilter, setMaxPriceFilter] = useState<number | undefined>(undefined);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
 
+  // Defense division passcode gate state (shares backend auth with Relational Database)
+  const [defenseAuthMode, setDefenseAuthMode] = useState<'checking' | 'unclaimed' | 'env' | 'claimed'>('checking');
+  const [defenseUnlocked, setDefenseUnlocked] = useState(false);
+  const [passcodeInput, setPasscodeInput] = useState('');
+  const [confirmPasscodeInput, setConfirmPasscodeInput] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+
   useEffect(() => {
     if (externalSearch !== undefined) {
       setSearchTerm(externalSearch);
     }
   }, [externalSearch]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const verifyStatus = async () => {
+      if (!adminToken && selectedCategory !== 'governmental-military') {
+        setDefenseUnlocked(false);
+        return;
+      }
+      try {
+        const res = await fetch('/api/admin/auth/status', {
+          headers: adminToken ? { Authorization: `Bearer ${adminToken}` } : {},
+        });
+        if (!cancelled && res.ok) {
+          const data = await res.json();
+          setDefenseAuthMode(data.mode || 'claimed');
+          const authed = Boolean(data.authenticated);
+          setDefenseUnlocked(authed);
+          if (!authed && adminToken) {
+            onAdminTokenChange(null);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setDefenseAuthMode('claimed');
+          setDefenseUnlocked(false);
+        }
+      }
+    };
+    verifyStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [adminToken, selectedCategory]);
+
+  const handleDefenseAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+
+    if (defenseAuthMode === 'unclaimed') {
+      if (passcodeInput.trim().length < 8) {
+        setAuthError('Passcode must be at least 8 characters.');
+        return;
+      }
+      if (passcodeInput !== confirmPasscodeInput) {
+        setAuthError('Passcodes do not match.');
+        return;
+      }
+    }
+
+    setAuthSubmitting(true);
+    try {
+      const endpoint =
+        defenseAuthMode === 'unclaimed' ? '/api/admin/auth/claim' : '/api/admin/auth/login';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode: passcodeInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.mode === 'unclaimed') {
+          setDefenseAuthMode('unclaimed');
+        }
+        setAuthError(data.error || 'Authentication failed.');
+        return;
+      }
+      onAdminTokenChange(data.token);
+      setDefenseUnlocked(true);
+      setDefenseAuthMode(data.mode || 'claimed');
+      setPasscodeInput('');
+      setConfirmPasscodeInput('');
+    } catch {
+      setAuthError('Unable to reach authentication service.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
   const filtered = filterAndSortProducts(products, {
     categorySlug: selectedCategory,
+    excludeCategorySlugs:
+      selectedCategory === 'all' ? ['governmental-military', 'cat-military'] : undefined,
     searchTerm,
     inStockOnly,
     sortBy,
@@ -86,7 +183,16 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
               Specialized Vessels &amp; Engineering Systems
             </h2>
             <p className="text-xs sm:text-sm text-[#D6CFC0] mt-1">
-              Displaying <span className="font-bold text-[#FAF5EA]">{filtered.length}</span> verified platforms with full technical parameters and certified drawings.
+              {selectedCategory === 'governmental-military' && !defenseUnlocked ? (
+                <span className="inline-flex items-center gap-1.5 text-[#FF6B52] font-semibold">
+                  <Lock size={13} />
+                  Protected division — administrator passcode required
+                </span>
+              ) : (
+                <>
+                  Displaying <span className="font-bold text-[#FAF5EA]">{filtered.length}</span> verified platforms with full technical parameters and certified drawings.
+                </>
+              )}
             </p>
           </div>
 
@@ -149,19 +255,29 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
               <span className="text-[11px] font-bold text-[#526079] uppercase tracking-wider mr-1">
                 FLEET DIVISION:
               </span>
-              {categoriesList.map((cat) => (
-                <button
-                  key={cat.slug}
-                  onClick={() => onSelectCategory(cat.slug)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer ${
-                    selectedCategory === cat.slug
-                      ? 'bg-[#FF6B52] text-[#FAF5EA] shadow-xs font-semibold'
-                      : 'bg-[#F1EADA] hover:bg-[#E7DEC9] text-[#1E3250] border border-[#E0D6C0]'
-                  }`}
-                >
-                  {cat.label}
-                </button>
-              ))}
+              {categoriesList.map((cat) => {
+                const isProtectedDivision = cat.slug === 'governmental-military';
+                return (
+                  <button
+                    key={cat.slug}
+                    onClick={() => onSelectCategory(cat.slug)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer inline-flex items-center gap-1.5 ${
+                      selectedCategory === cat.slug
+                        ? 'bg-[#FF6B52] text-[#FAF5EA] shadow-xs font-semibold'
+                        : 'bg-[#F1EADA] hover:bg-[#E7DEC9] text-[#1E3250] border border-[#E0D6C0]'
+                    }`}
+                  >
+                    {isProtectedDivision && (
+                      defenseUnlocked ? (
+                        <ShieldCheck size={12} className="shrink-0" />
+                      ) : (
+                        <Lock size={12} className="shrink-0" />
+                      )
+                    )}
+                    <span>{cat.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* Secondary Filter Controls */}
@@ -212,8 +328,143 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
         </div>
       </StaggerBlock>
 
-      {/* Product Grid */}
-      {filtered.length === 0 ? (
+      {/* Protected Governmental & Defense Unlocked Banner */}
+      {selectedCategory === 'governmental-military' && defenseUnlocked && (
+        <div className="mb-6 bg-[#141517] border border-[#2C2F36] rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-[#F5F5F7] shadow-lg">
+          <div className="flex items-center gap-2.5 text-xs">
+            <span className="w-7 h-7 rounded-lg bg-[#FF6B52]/15 border border-[#FF6B52]/30 text-[#FF6B52] flex items-center justify-center">
+              <ShieldCheck size={15} />
+            </span>
+            <div>
+              <span className="font-bold text-[#F5F5F7]">Governmental &amp; Defense Division Unlocked</span>
+              <span className="text-[#9CA3AF] ml-2 hidden sm:inline">
+                Shared session with Relational Database Console
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onAdminLogout}
+            className="px-3 py-1.5 rounded-lg bg-[#1F2126] hover:bg-[#2A2D34] border border-[#343841] text-[#D1D5DB] hover:text-white text-xs font-semibold inline-flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <LogOut size={13} />
+            <span>Lock Section</span>
+          </button>
+        </div>
+      )}
+
+      {/* Product Grid or Protected Gate */}
+      {selectedCategory === 'governmental-military' && !defenseUnlocked ? (
+        <div className="max-w-md mx-auto my-8 bg-[#141517] border border-[#2C2F36] rounded-2xl p-6 sm:p-8 shadow-2xl text-[#F5F5F7]">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-[#FF6B52] text-white flex items-center justify-center shrink-0">
+              <Lock size={20} />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-bold text-white">
+                {defenseAuthMode === 'unclaimed'
+                  ? 'First-Run Admin Setup'
+                  : 'Governmental & Defense Access'}
+              </h3>
+              <p className="text-[11px] font-mono text-[#9CA3AF]">
+                {defenseAuthMode === 'unclaimed'
+                  ? 'Set the administrator passcode shared with the Relational Database'
+                  : 'Protected with the Relational Database administrator passcode'}
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs text-[#9CA3AF] mb-5 leading-relaxed">
+            {defenseAuthMode === 'unclaimed'
+              ? 'Create an administrator passcode (minimum 8 characters) to lock and protect the Governmental & Defense fleet alongside the Relational Database Console.'
+              : 'Enter the administrator passcode to inspect Governmental & Naval Defense vessels, tactical USVs, and restricted technical specifications.'}
+          </p>
+
+          {defenseAuthMode === 'checking' ? (
+            <div className="py-8 text-center text-xs text-[#9CA3AF]">
+              Checking security status...
+            </div>
+          ) : (
+            <form onSubmit={handleDefenseAuthSubmit} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[#9CA3AF] mb-1.5">
+                  {defenseAuthMode === 'unclaimed'
+                    ? 'Create Admin Passcode'
+                    : 'Administrator Passcode'}
+                </label>
+                <div className="relative">
+                  <KeyRound size={15} className="absolute left-3.5 top-3 text-[#6B7280]" />
+                  <input
+                    type="password"
+                    required
+                    minLength={defenseAuthMode === 'unclaimed' ? 8 : 1}
+                    value={passcodeInput}
+                    onChange={(e) => setPasscodeInput(e.target.value)}
+                    placeholder={
+                      defenseAuthMode === 'unclaimed'
+                        ? 'Minimum 8 characters'
+                        : 'Enter admin passcode'
+                    }
+                    className="w-full pl-10 pr-4 py-2.5 bg-[#0B0C0E] border border-[#2C2F36] rounded-xl text-sm text-white placeholder-[#6B7280] focus:outline-none focus:border-[#FF6B52]"
+                  />
+                </div>
+              </div>
+
+              {defenseAuthMode === 'unclaimed' && (
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[#9CA3AF] mb-1.5">
+                    Confirm Admin Passcode
+                  </label>
+                  <div className="relative">
+                    <KeyRound size={15} className="absolute left-3.5 top-3 text-[#6B7280]" />
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={confirmPasscodeInput}
+                      onChange={(e) => setConfirmPasscodeInput(e.target.value)}
+                      placeholder="Re-enter passcode"
+                      className="w-full pl-10 pr-4 py-2.5 bg-[#0B0C0E] border border-[#2C2F36] rounded-xl text-sm text-white placeholder-[#6B7280] focus:outline-none focus:border-[#FF6B52]"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {authError && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-400">
+                  {authError}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthError(null);
+                    setPasscodeInput('');
+                    setConfirmPasscodeInput('');
+                    onSelectCategory('all');
+                  }}
+                  className="px-4 py-2.5 rounded-xl border border-[#2C2F36] text-xs font-semibold text-[#D1D5DB] hover:bg-[#1F2126] transition cursor-pointer"
+                >
+                  Back to Public Fleet
+                </button>
+                <button
+                  type="submit"
+                  disabled={authSubmitting}
+                  className="px-5 py-2.5 rounded-xl bg-[#FF6B52] hover:bg-[#E85738] disabled:opacity-60 text-xs font-bold text-white transition cursor-pointer"
+                >
+                  {authSubmitting
+                    ? 'Verifying...'
+                    : defenseAuthMode === 'unclaimed'
+                    ? 'Set Passcode & Unlock'
+                    : 'Unlock Defense Fleet'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="bg-[#FAF5EA] border border-[#E5DEC9] rounded-2xl p-12 text-center max-w-md mx-auto my-8 shadow-lg text-[#091830]">
           <Package size={36} className="text-[#526079]/50 mx-auto mb-3" />
           <h3 className="text-xl font-bold text-[#091830] mb-1">No matching vessels found</h3>

@@ -22,7 +22,7 @@ This repository houses the full-stack TypeScript application powering Hyprecisio
 ## Tech Stack
 
 - **Language:** TypeScript (99.4%)
-- **Frontend:** Vite, HTML5, CSS/Motion
+- **Frontend:** Vite, HTML5, CSS/Motion, Python
 - **Backend:** Node/Bun (`server.ts`)
 - **Package Manager:** Bun (`bun.lock`)
 

@@ -11,7 +11,8 @@ import { FormalQuotationModal } from './components/FormalQuotationModal.tsx';
 import { Footer } from './components/Footer.tsx';
 import { ProductItem, CategoryItem, FormalQuotationOffer } from './types.ts';
 import { generateFormalQuotationOffer } from './utils/quotationDocument.ts';
-import { Bot, Sparkles } from 'lucide-react';
+import { FluidBackdrop } from './components/FluidBackdrop.tsx';
+import { startSmoothScroll, setSmoothScrollPaused } from './utils/motionEngine.ts';
 
 export default function App() {
   const [products, setProducts] = useState<ProductItem[]>([]);
@@ -32,6 +33,7 @@ export default function App() {
   const [activeRfqProduct, setActiveRfqProduct] = useState<ProductItem | null>(null);
   const [detailProduct, setDetailProduct] = useState<ProductItem | null>(null);
   const [formalOfferData, setFormalOfferData] = useState<FormalQuotationOffer | null>(null);
+  const [adminToken, setAdminToken] = useState<string | null>(null);
 
   // Fetch live products and categories from backend
   const fetchData = async () => {
@@ -75,6 +77,30 @@ export default function App() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const cleanup = startSmoothScroll();
+    return cleanup;
+  }, []);
+
+  useEffect(() => {
+    const anyModalOpen = Boolean(
+      compareModalOpen ||
+        aiAssistantOpen ||
+        adminPanelOpen ||
+        rfqModalOpen ||
+        detailProduct ||
+        formalOfferData
+    );
+    setSmoothScrollPaused(anyModalOpen);
+  }, [
+    compareModalOpen,
+    aiAssistantOpen,
+    adminPanelOpen,
+    rfqModalOpen,
+    detailProduct,
+    formalOfferData,
+  ]);
 
   // Toggle compare selection
   const handleToggleCompare = (product: ProductItem) => {
@@ -160,7 +186,10 @@ export default function App() {
   const flagshipProduct = products.find((p) => p.sku === 'ST-80-TUG') || products[0];
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-slate-900 font-sans flex flex-col justify-between selection:bg-amber-400 selection:text-slate-950">
+    <div className="relative min-h-screen bg-[#091830] text-[#FAF5EA] font-sans flex flex-col justify-between selection:bg-[#FF6B52] selection:text-[#FAF5EA]">
+      {/* Full-bleed WebGL GPU Fluid Simulation Backdrop + Navy Radial Scrim */}
+      <FluidBackdrop />
+
       {/* 1. TOP HORIZONTAL NAVBAR matching prototype photo */}
       <Navbar
         activeTab={activeTab}
@@ -175,7 +204,7 @@ export default function App() {
       />
 
       {/* 2. MAIN CONTAINER */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* HERO SECTION matching prototype */}
         <HeroSection
           onSearch={handleSearchFromHero}
@@ -212,17 +241,7 @@ export default function App() {
         onOpenAdmin={() => setAdminPanelOpen(true)}
       />
 
-      {/* 4. FLOATING "Ask AI Assistant" BUTTON matching prototype */}
-      <button
-        onClick={() => handleOpenAi('')}
-        className="fixed bottom-6 right-6 z-40 bg-[#F59E0B] hover:bg-[#D97706] text-slate-950 font-semibold text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-full shadow-lg shadow-amber-500/25 hover:shadow-xl hover:scale-105 active:scale-95 flex items-center gap-2 transition-all cursor-pointer"
-        aria-label="Ask AI Assistant"
-      >
-        <Bot size={17} className="text-slate-950 stroke-[2.2]" />
-        <span>Ask AI Assistant</span>
-      </button>
-
-      {/* 5. MODALS */}
+      {/* 4. MODALS */}
 
       {/* Side-by-side AI Product Comparison */}
       {compareModalOpen && (
@@ -244,6 +263,8 @@ export default function App() {
         <AiAssistantModal
           initialPrompt={aiInitialPrompt}
           products={products}
+          adminToken={adminToken}
+          onAdminTokenChange={setAdminToken}
           onClose={() => setAiAssistantOpen(false)}
           onApplyFilter={handleApplyAiFilter}
           onCompareSkus={handleCompareSkus}
@@ -256,6 +277,8 @@ export default function App() {
         <AdminDashboard
           products={products}
           categories={categories}
+          adminToken={adminToken}
+          onAdminTokenChange={setAdminToken}
           onClose={() => setAdminPanelOpen(false)}
           onRefreshData={fetchData}
           onViewFormalOffer={(p, rfq) => handleOpenFormalOffer(p, rfq)}

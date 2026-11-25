@@ -1,22 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
   Search,
-  CheckCircle2,
   Plus,
   ArrowRight,
-  Sparkles,
-  Info,
-  Clock,
   Package,
   X,
   Filter,
-  FileSpreadsheet,
-  ZoomIn,
-  ShieldCheck,
   Check,
 } from 'lucide-react';
 import { ProductItem } from '../types.ts';
 import { filterAndSortProducts, FilterOptions } from '../utils/productLogic.ts';
+import { StaggerBlock } from './RevealEffects.tsx';
 
 interface ProductCatalogProps {
   products: ProductItem[];
@@ -39,11 +33,8 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   onSelectCategory,
   selectedForCompare,
   onToggleCompare,
-  onOpenCompareModal,
-  onClearCompare,
   onViewProductDetail,
   onRequestQuote,
-  onViewFormalOffer,
   externalSearch = '',
   onResetSearch,
 }) => {
@@ -79,151 +70,155 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
   ];
 
   return (
-    <section id="fleet-catalogue" className="pt-2 pb-16">
-      {/* Section Header matching clean prototype */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-xs font-bold text-amber-600 uppercase tracking-wider">
-              [ Fleet Catalogue &amp; Specifications ]
-            </span>
-            <span className="text-xs text-slate-400">·</span>
-            <span className="text-xs text-slate-500 font-medium">IMO &amp; IACS Verified</span>
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">
-            Specialized Vessels &amp; Engineering Systems
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Displaying <span className="font-bold text-slate-800">{filtered.length}</span> verified platforms with full technical parameters and certified drawings.
-          </p>
-        </div>
-
-        {/* Search & Sort Controls */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-2.5 text-slate-400" size={15} />
-            <input
-              type="text"
-              placeholder="Search SKU, vessel, engine..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8 pr-8 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => {
-                  setSearchTerm('');
-                  if (onResetSearch) onResetSearch();
-                }}
-                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X size={14} />
-              </button>
-            )}
+    <section id="fleet-catalogue" className="pt-4 pb-16">
+      {/* Section Header */}
+      <StaggerBlock delay={1520}>
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+          <div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-xs font-bold text-[#FF6B52] uppercase tracking-wider">
+                [ Fleet Catalogue &amp; Specifications ]
+              </span>
+              <span className="text-xs text-[#FAF5EA]/35">·</span>
+              <span className="text-xs text-[#D6CFC0] font-medium">IMO &amp; IACS Verified</span>
+            </div>
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#FAF5EA] tracking-tight">
+              Specialized Vessels &amp; Engineering Systems
+            </h2>
+            <p className="text-xs sm:text-sm text-[#D6CFC0] mt-1">
+              Displaying <span className="font-bold text-[#FAF5EA]">{filtered.length}</span> verified platforms with full technical parameters and certified drawings.
+            </p>
           </div>
 
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:border-amber-500 cursor-pointer"
-          >
-            <option value="sku">Sort: SKU Code</option>
-            <option value="name">Sort: Vessel Name</option>
-            <option value="price_asc">Price: Low to High</option>
-            <option value="price_desc">Price: High to Low</option>
-            <option value="stock">Inventory Availability</option>
-          </select>
-
-          <button
-            onClick={() => setShowFiltersMobile(!showFiltersMobile)}
-            className="md:hidden px-3 py-2 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs font-semibold flex items-center gap-1.5"
-          >
-            <Filter size={13} /> Filters
-          </button>
-        </div>
-      </div>
-
-      {/* Filter Ribbon with Category Pills */}
-      <div
-        className={`bg-white border border-slate-200/90 rounded-xl p-3 sm:p-4 mb-8 shadow-2xs ${
-          showFiltersMobile ? 'block' : 'hidden md:block'
-        }`}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          {/* Category Filter Pills */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
-              FLEET DIVISION:
-            </span>
-            {categoriesList.map((cat) => (
-              <button
-                key={cat.slug}
-                onClick={() => onSelectCategory(cat.slug)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  selectedCategory === cat.slug
-                    ? 'bg-amber-500 text-white shadow-xs font-semibold'
-                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200/60'
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Secondary Filter Controls */}
-          <div className="flex flex-wrap items-center gap-4 text-xs">
-            <label className="flex items-center gap-2 cursor-pointer select-none text-slate-700 font-medium">
+          {/* Search & Sort Controls */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-2.5 text-[#526079]" size={15} />
               <input
-                type="checkbox"
-                checked={inStockOnly}
-                onChange={(e) => setInStockOnly(e.target.checked)}
-                className="accent-amber-500 h-3.5 w-3.5"
+                type="text"
+                placeholder="Search SKU, vessel, engine..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-8 py-2 bg-[#FAF5EA] border border-[#E5DEC9] rounded-lg text-xs text-[#091830] placeholder-[#6B768B] focus:outline-none focus:border-[#FF6B52] focus:ring-1 focus:ring-[#FF6B52] transition"
               />
-              <span>In-Stock / Ready Hull</span>
-            </label>
-
-            <div className="flex items-center gap-1.5 text-slate-500">
-              <span className="font-mono text-[11px]">Max Price:</span>
-              <select
-                value={maxPriceFilter || ''}
-                onChange={(e) =>
-                  setMaxPriceFilter(e.target.value ? Number(e.target.value) : undefined)
-                }
-                className="px-2 py-1 bg-white border border-slate-200 rounded text-xs cursor-pointer focus:outline-none"
-              >
-                <option value="">Any</option>
-                <option value="100000">&lt; $100,000</option>
-                <option value="300000">&lt; $300,000</option>
-                <option value="1000000">&lt; $1,000,000</option>
-                <option value="3000000">&lt; $3,000,000</option>
-              </select>
+              {searchTerm && (
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    if (onResetSearch) onResetSearch();
+                  }}
+                  className="absolute right-2.5 top-2.5 text-[#526079] hover:text-[#091830] cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
 
-            {(searchTerm || inStockOnly || maxPriceFilter || selectedCategory !== 'all') && (
-              <button
-                onClick={() => {
-                  setSearchTerm('');
-                  setInStockOnly(false);
-                  setMaxPriceFilter(undefined);
-                  onSelectCategory('all');
-                  if (onResetSearch) onResetSearch();
-                }}
-                className="text-xs text-amber-600 hover:text-amber-700 font-bold hover:underline cursor-pointer"
-              >
-                RESET FILTERS
-              </button>
-            )}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as FilterOptions['sortBy'])}
+              className="px-3 py-2 bg-[#FAF5EA] border border-[#E5DEC9] rounded-lg text-xs text-[#091830] font-medium focus:outline-none focus:border-[#FF6B52] cursor-pointer"
+            >
+              <option value="sku">Sort: SKU Code</option>
+              <option value="name">Sort: Vessel Name</option>
+              <option value="price_asc">Price: Low to High</option>
+              <option value="price_desc">Price: High to Low</option>
+              <option value="stock">Inventory Availability</option>
+            </select>
+
+            <button
+              onClick={() => setShowFiltersMobile(!showFiltersMobile)}
+              className="md:hidden px-3 py-2 bg-[#FAF5EA] border border-[#E5DEC9] rounded-lg text-[#091830] text-xs font-semibold flex items-center gap-1.5"
+            >
+              <Filter size={13} /> Filters
+            </button>
           </div>
         </div>
-      </div>
+      </StaggerBlock>
+
+      {/* Filter Ribbon with Category Pills — 30% Cream surface */}
+      <StaggerBlock delay={1580}>
+        <div
+          className={`bg-[#FAF5EA] border border-[#E5DEC9] rounded-2xl p-3.5 sm:p-4 mb-8 shadow-lg text-[#091830] ${
+            showFiltersMobile ? 'block' : 'hidden md:block'
+          }`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            {/* Category Filter Pills */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-bold text-[#526079] uppercase tracking-wider mr-1">
+                FLEET DIVISION:
+              </span>
+              {categoriesList.map((cat) => (
+                <button
+                  key={cat.slug}
+                  onClick={() => onSelectCategory(cat.slug)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer ${
+                    selectedCategory === cat.slug
+                      ? 'bg-[#FF6B52] text-[#FAF5EA] shadow-xs font-semibold'
+                      : 'bg-[#F1EADA] hover:bg-[#E7DEC9] text-[#1E3250] border border-[#E0D6C0]'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Secondary Filter Controls */}
+            <div className="flex flex-wrap items-center gap-4 text-xs">
+              <label className="flex items-center gap-2 cursor-pointer select-none text-[#091830] font-medium">
+                <input
+                  type="checkbox"
+                  checked={inStockOnly}
+                  onChange={(e) => setInStockOnly(e.target.checked)}
+                  className="accent-[#FF6B52] h-3.5 w-3.5"
+                />
+                <span>In-Stock / Ready Hull</span>
+              </label>
+
+              <div className="flex items-center gap-1.5 text-[#3B4963]">
+                <span className="font-mono text-[11px]">Max Price:</span>
+                <select
+                  value={maxPriceFilter || ''}
+                  onChange={(e) =>
+                    setMaxPriceFilter(e.target.value ? Number(e.target.value) : undefined)
+                  }
+                  className="px-2.5 py-1 bg-[#F2EBD9] border border-[#E0D6C0] rounded-lg text-xs text-[#091830] cursor-pointer focus:outline-none focus:border-[#FF6B52]"
+                >
+                  <option value="">Any</option>
+                  <option value="100000">&lt; $100,000</option>
+                  <option value="300000">&lt; $300,000</option>
+                  <option value="1000000">&lt; $1,000,000</option>
+                  <option value="3000000">&lt; $3,000,000</option>
+                </select>
+              </div>
+
+              {(searchTerm || inStockOnly || maxPriceFilter || selectedCategory !== 'all') && (
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setInStockOnly(false);
+                    setMaxPriceFilter(undefined);
+                    onSelectCategory('all');
+                    if (onResetSearch) onResetSearch();
+                  }}
+                  className="text-xs text-[#E85738] hover:text-[#FF6B52] font-bold hover:underline cursor-pointer"
+                >
+                  RESET FILTERS
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </StaggerBlock>
 
       {/* Product Grid */}
       {filtered.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-xl p-12 text-center max-w-md mx-auto my-8 shadow-xs">
-          <Package size={36} className="text-slate-300 mx-auto mb-3" />
-          <h3 className="text-xl font-bold text-slate-800 mb-1">No matching vessels found</h3>
-          <p className="text-xs text-slate-500 mb-4">
-            Try adjusting your search criteria or query our AI Assistant.
+        <div className="bg-[#FAF5EA] border border-[#E5DEC9] rounded-2xl p-12 text-center max-w-md mx-auto my-8 shadow-lg text-[#091830]">
+          <Package size={36} className="text-[#526079]/50 mx-auto mb-3" />
+          <h3 className="text-xl font-bold text-[#091830] mb-1">No matching vessels found</h3>
+          <p className="text-xs text-[#3B4963] mb-4">
+            Try adjusting your search criteria or query Chrollo for fleet guidance.
           </p>
           <button
             onClick={() => {
@@ -233,7 +228,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
               onSelectCategory('all');
               if (onResetSearch) onResetSearch();
             }}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-semibold text-xs rounded-lg transition"
+            className="px-5 py-2.5 bg-[#FF6B52] hover:bg-[#E85738] text-[#FAF5EA] font-semibold text-xs rounded-full transition cursor-pointer"
           >
             Clear Filters
           </button>
@@ -248,32 +243,35 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
             return (
               <div
                 key={product.id}
-                className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden hover:border-amber-400 hover:shadow-md transition-all flex flex-col justify-between group"
+                className="relative bg-[#FAF5EA] border border-[#E5DEC9] rounded-2xl overflow-hidden hover:border-[#FF6B52] hover:shadow-xl transition-all duration-300 flex flex-col justify-between group text-[#091830] shadow-lg"
               >
                 <div>
                   {/* Top Image Box */}
-                  <div className="relative aspect-[16/10] bg-slate-900 overflow-hidden cursor-pointer" onClick={() => onViewProductDetail(product)}>
+                  <div
+                    className="relative aspect-[16/10] bg-[#0D213F] overflow-hidden cursor-pointer"
+                    onClick={() => onViewProductDetail(product)}
+                  >
                     <img
                       src={product.image_url}
                       alt={product.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-[cubic-bezier(0.2,0,0,1)]"
                       loading="lazy"
                     />
-                    <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded bg-black/60 backdrop-blur-xs text-[10px] font-mono text-amber-300 font-semibold uppercase">
+                    <div className="absolute top-2.5 left-2.5 px-2.5 py-0.5 rounded-full bg-[#091830]/85 backdrop-blur-xs text-[10px] font-mono text-[#FAF5EA] font-semibold uppercase z-10 border border-[#FAF5EA]/15">
                       {product.sku}
                     </div>
 
-                    <div className="absolute top-2.5 right-2.5">
+                    <div className="absolute top-2.5 right-2.5 z-10">
                       {isOutOfStock ? (
-                        <span className="px-2 py-0.5 rounded bg-slate-800/80 backdrop-blur-xs text-[10px] font-mono text-slate-300 font-semibold">
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#091830]/85 backdrop-blur-xs text-[10px] font-mono text-[#D6CFC0] font-semibold border border-[#FAF5EA]/15">
                           BUILT TO ORDER
                         </span>
                       ) : isLowStock ? (
-                        <span className="px-2 py-0.5 rounded bg-amber-500/90 text-[10px] font-mono text-slate-950 font-bold">
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#FF6B52] text-[10px] font-mono text-[#FAF5EA] font-bold">
                           AVAILABLE ({product.stock_quantity})
                         </span>
                       ) : (
-                        <span className="px-2 py-0.5 rounded bg-emerald-600/90 text-[10px] font-mono text-white font-semibold">
+                        <span className="px-2.5 py-0.5 rounded-full bg-[#091830]/90 text-[10px] font-mono text-[#FAF5EA] font-semibold border border-[#FAF5EA]/20">
                           READY STOCK ({product.stock_quantity})
                         </span>
                       )}
@@ -283,34 +281,34 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                   {/* Body Content */}
                   <div className="p-5">
                     {/* Category Label */}
-                    <div className="text-[11px] font-bold text-amber-600 uppercase tracking-wider mb-1">
+                    <div className="text-[11px] font-bold text-[#E85738] uppercase tracking-wider mb-1">
                       {product.category_name}
                     </div>
 
                     <h3
                       onClick={() => onViewProductDetail(product)}
-                      className="text-base sm:text-lg font-bold text-slate-900 leading-snug hover:text-amber-600 transition-colors cursor-pointer line-clamp-1"
+                      className="text-base sm:text-lg font-bold text-[#091830] leading-snug hover:text-[#E85738] transition-colors cursor-pointer line-clamp-1"
                       title={product.title}
                     >
                       {product.title}
                     </h3>
 
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed line-clamp-2">
+                    <p className="text-xs text-[#3B4963] mt-1.5 leading-relaxed line-clamp-2">
                       {product.short_desc}
                     </p>
 
                     {/* Highlighted Specifications */}
                     {product.specifications && product.specifications.length > 0 && (
-                      <div className="mt-3.5 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                      <div className="mt-3.5 pt-3 border-t border-[#E4DBC7] grid grid-cols-2 gap-2 text-xs">
                         {product.specifications
                           .filter((s) => s.highlight)
                           .slice(0, 4)
                           .map((spec, i) => (
-                            <div key={i} className="bg-slate-50 rounded-lg p-2 border border-slate-100">
-                              <div className="text-[9px] uppercase tracking-wider text-slate-400 font-mono truncate">
+                            <div key={i} className="bg-[#F2EBD9] rounded-lg p-2 border border-[#E4DBC7]">
+                              <div className="text-[9px] uppercase tracking-wider text-[#526079] font-mono truncate">
                                 {spec.key}
                               </div>
-                              <div className="text-xs font-bold text-slate-800 truncate mt-0.5 font-mono">
+                              <div className="text-xs font-bold text-[#091830] truncate mt-0.5 font-mono">
                                 {spec.value} {spec.unit}
                               </div>
                             </div>
@@ -321,10 +319,10 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                 </div>
 
                 {/* Card Footer: Price & Actions */}
-                <div className="px-5 pb-5 pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
+                <div className="px-5 pb-5 pt-3 border-t border-[#E4DBC7] flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-[10px] font-mono text-slate-400 uppercase">FOB UNIT PRICE</div>
-                    <div className="text-sm sm:text-base font-bold text-amber-600 font-mono">
+                    <div className="text-[10px] font-mono text-[#526079] uppercase">FOB UNIT PRICE</div>
+                    <div className="text-sm sm:text-base font-bold text-[#E85738] font-mono">
                       ${product.price_usd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </div>
                   </div>
@@ -332,26 +330,26 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => onToggleCompare(product)}
-                      className={`p-2 rounded-lg border text-xs font-medium transition cursor-pointer ${
+                      className={`p-2 rounded-full border text-xs font-medium transition cursor-pointer ${
                         isCompared
-                          ? 'border-amber-500 bg-amber-50 text-amber-700'
-                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
+                          ? 'border-[#FF6B52] bg-[#FF6B52]/12 text-[#E85738]'
+                          : 'border-[#D9D0BA] bg-[#F2EBD9] hover:bg-[#E7DEC9] text-[#091830]'
                       }`}
                       title={isCompared ? 'Remove from compare' : 'Add to compare'}
                     >
-                      {isCompared ? <Check size={14} className="text-amber-600" /> : <Plus size={14} />}
+                      {isCompared ? <Check size={14} className="text-[#E85738]" /> : <Plus size={14} />}
                     </button>
 
                     <button
                       onClick={() => onViewProductDetail(product)}
-                      className="px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold transition cursor-pointer"
+                      className="px-3.5 py-2 rounded-full border border-[#D9D0BA] bg-[#F2EBD9] hover:bg-[#E7DEC9] text-[#091830] text-xs font-semibold transition cursor-pointer"
                     >
                       Specs
                     </button>
 
                     <button
                       onClick={() => onRequestQuote(product)}
-                      className="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                      className="px-3.5 py-2 rounded-full bg-[#091830] hover:bg-[#FF6B52] text-[#FAF5EA] text-xs font-bold transition-colors duration-200 cursor-pointer flex items-center gap-1"
                     >
                       <span>Quote</span>
                       <ArrowRight size={12} />
@@ -363,41 +361,7 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({
           })}
         </div>
       )}
-
-      {/* Floating Comparison Tray */}
-      {selectedForCompare.length > 0 && (
-        <div className="fixed bottom-20 sm:bottom-6 left-4 sm:left-6 z-40 bg-slate-900 text-white rounded-xl border border-amber-500/50 p-3.5 shadow-2xl flex flex-col sm:flex-row items-center gap-3 sm:gap-4 max-w-md">
-          <div>
-            <div className="text-xs text-amber-400 font-bold font-mono">
-              Comparing {selectedForCompare.length}/3 Vessels
-            </div>
-            <div className="text-[11px] text-slate-300 truncate max-w-xs font-mono">
-              {selectedForCompare.map((p) => p.sku).join(', ')}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 ml-auto">
-            <button
-              onClick={onClearCompare}
-              className="text-xs text-slate-400 hover:text-white px-2 py-1 cursor-pointer"
-            >
-              Clear
-            </button>
-            <button
-              onClick={onOpenCompareModal}
-              disabled={selectedForCompare.length < 2}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition flex items-center gap-1.5 cursor-pointer ${
-                selectedForCompare.length >= 2
-                  ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
-                  : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-              }`}
-            >
-              <Sparkles size={13} />
-              <span>Side-by-Side</span>
-            </button>
-          </div>
-        </div>
-      )}
     </section>
   );
 };
+

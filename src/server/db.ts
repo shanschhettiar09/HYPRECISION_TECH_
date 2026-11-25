@@ -83,6 +83,12 @@ export function initializeDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS admin_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
     CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
     CREATE INDEX IF NOT EXISTS idx_products_price ON products(price_usd);
@@ -1114,6 +1120,22 @@ export function getProductById(idOrSku: string) {
   };
 }
 
+function isSafeAssetUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (trimmed.startsWith('/')) {
+    return !trimmed.startsWith('//');
+  }
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+const VALID_RFQ_STATUSES = new Set(['PENDING', 'QUOTED', 'APPROVED', 'ARCHIVED']);
+
 /**
  * Insert new product with specifications
  */
@@ -1133,6 +1155,40 @@ export function createProduct(
   },
   specifications: { key: string; value: string; unit?: string; highlight?: boolean }[] = []
 ) {
+  const sku = String(data.sku || '').trim().toUpperCase();
+  const title = String(data.title || '').trim();
+  if (sku.length < 3 || sku.length > 64) {
+    throw new Error('SKU must be between 3 and 64 characters.');
+  }
+  if (title.length < 3 || title.length > 200) {
+    throw new Error('Product title must be between 3 and 200 characters.');
+  }
+
+  const price = Number(data.price_usd);
+  if (!Number.isFinite(price) || price < 0) {
+    throw new Error('Price must be a non-negative finite number.');
+  }
+
+  const stock = Number(data.stock_quantity);
+  if (!Number.isInteger(stock) || stock < 0) {
+    throw new Error('Stock quantity must be a non-negative integer.');
+  }
+
+  const minOrderQty = data.min_order_quantity !== undefined ? Number(data.min_order_quantity) : 1;
+  if (!Number.isInteger(minOrderQty) || minOrderQty < 1) {
+    throw new Error('Minimum order quantity must be at least 1.');
+  }
+
+  const leadTime = data.lead_time_days !== undefined ? Number(data.lead_time_days) : 7;
+  if (!Number.isInteger(leadTime) || leadTime < 0) {
+    throw new Error('Lead time days must be a non-negative integer.');
+  }
+
+  const imageUrl = data.image_url?.trim() || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800';
+  if (!isSafeAssetUrl(imageUrl)) {
+    throw new Error('Image URL must be an https/http URL or relative / path.');
+  }
+
   db.exec('BEGIN TRANSACTION;');
   try {
     const id = 'prod_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
@@ -1146,16 +1202,16 @@ export function createProduct(
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
       id,
-      data.category_id,
-      data.sku.toUpperCase(),
-      data.title,
-      data.short_desc || '',
-      data.description || data.short_desc || '',
-      data.price_usd || 0,
-      data.stock_quantity || 0,
-      data.min_order_quantity || 1,
-      data.lead_time_days || 7,
-      data.image_url || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?w=800',
+      String(data.category_id || '').trim(),
+      sku,
+      title,
+      String(data.short_desc || '').trim(),
+      String(data.description || data.short_desc || '').trim(),
+      price,
+      stock,
+      minOrderQty,
+      leadTime,
+      imageUrl,
       certString
     );
 
@@ -1168,9 +1224,9 @@ export function createProduct(
       insertSpec.run(
         `sp_${id}_${idx}`,
         id,
-        spec.key,
-        spec.value,
-        spec.unit || '',
+        String(spec.key || '').trim(),
+        String(spec.value || '').trim(),
+        String(spec.unit || '').trim(),
         spec.highlight ? 1 : 0
       );
     });
@@ -1178,7 +1234,7 @@ export function createProduct(
     db.prepare(`
       INSERT INTO audit_logs (action, entity_type, entity_id, details)
       VALUES ('CREATE_PRODUCT', 'PRODUCT', ?, ?)
-    `).run(id, `Created product SKU ${data.sku} with ${specifications.length} specifications.`);
+    `).run(id, `Created product SKU ${sku} with ${specifications.length} specifications.`);
 
     db.exec('COMMIT;');
     return getProductById(id);
@@ -1219,36 +1275,56 @@ export function updateProduct(
     const params: (string | number)[] = [];
 
     if (data.title !== undefined) {
+      const title = String(data.title).trim();
+      if (title.length < 3 || title.length > 200) {
+        throw new Error('Title must be between 3 and 200 characters.');
+      }
       updates.push('title = ?');
-      params.push(String(data.title));
+      params.push(title);
     }
-    if (data.price_usd !== undefined && !isNaN(Number(data.price_usd))) {
+    if (data.price_usd !== undefined) {
+      const price = Number(data.price_usd);
+      if (!Number.isFinite(price) || price < 0) {
+        throw new Error('Price must be a non-negative finite number.');
+      }
       updates.push('price_usd = ?');
-      params.push(Number(data.price_usd));
+      params.push(price);
     }
-    if (data.stock_quantity !== undefined && !isNaN(Number(data.stock_quantity))) {
+    if (data.stock_quantity !== undefined) {
+      const stock = Number(data.stock_quantity);
+      if (!Number.isFinite(stock) || !Number.isInteger(stock) || stock < 0) {
+        throw new Error('Stock quantity must be a non-negative integer.');
+      }
       updates.push('stock_quantity = ?');
-      params.push(Math.round(Number(data.stock_quantity)));
+      params.push(stock);
     }
-    if (data.lead_time_days !== undefined && !isNaN(Number(data.lead_time_days))) {
+    if (data.lead_time_days !== undefined) {
+      const lead = Number(data.lead_time_days);
+      if (!Number.isFinite(lead) || !Number.isInteger(lead) || lead < 0) {
+        throw new Error('Lead time days must be a non-negative integer.');
+      }
       updates.push('lead_time_days = ?');
-      params.push(Math.round(Number(data.lead_time_days)));
+      params.push(lead);
     }
     if (data.short_desc !== undefined) {
       updates.push('short_desc = ?');
-      params.push(String(data.short_desc));
+      params.push(String(data.short_desc).trim());
     }
     if (data.description !== undefined) {
       updates.push('description = ?');
-      params.push(String(data.description));
+      params.push(String(data.description).trim());
     }
     if (data.category_id !== undefined) {
       updates.push('category_id = ?');
-      params.push(String(data.category_id));
+      params.push(String(data.category_id).trim());
     }
     if (data.image_url !== undefined) {
+      const url = String(data.image_url).trim();
+      if (!isSafeAssetUrl(url)) {
+        throw new Error('Image URL must be an https/http URL or relative / path.');
+      }
       updates.push('image_url = ?');
-      params.push(String(data.image_url));
+      params.push(url);
     }
 
     updates.push('updated_at = CURRENT_TIMESTAMP');
@@ -1265,7 +1341,14 @@ export function updateProduct(
         VALUES (?, ?, ?, ?, ?, ?)
       `);
       specifications.forEach((spec, idx) => {
-        insertSpec.run(`sp_${targetId}_${idx}`, targetId, spec.key, spec.value, spec.unit || '', spec.highlight ? 1 : 0);
+        insertSpec.run(
+          `sp_${targetId}_${idx}`,
+          targetId,
+          String(spec.key || '').trim(),
+          String(spec.value || '').trim(),
+          String(spec.unit || '').trim(),
+          spec.highlight ? 1 : 0
+        );
       });
     }
 
@@ -1325,8 +1408,31 @@ export function createQuotationRequest(data: {
   custom_specs?: string;
   reference_no?: string;
 }) {
+  const customerName = String(data.customer_name || '').trim();
+  const email = String(data.email || '').trim();
+  if (customerName.length < 2 || customerName.length > 120) {
+    throw new Error('Customer name must be between 2 and 120 characters.');
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 180) {
+    throw new Error('Valid email address is required.');
+  }
+
+  const rawQty = data.quantity_requested === undefined ? 1 : Number(data.quantity_requested);
+  if (!Number.isInteger(rawQty) || rawQty < 1 || rawQty > 1000) {
+    throw new Error('Requested quantity must be an integer between 1 and 1000.');
+  }
+
+  let validatedProductId: string | null = null;
+  if (data.product_id) {
+    const prodExists = db.prepare('SELECT id FROM products WHERE id = ?').get(String(data.product_id));
+    if (!prodExists) {
+      throw new Error('Referenced product does not exist.');
+    }
+    validatedProductId = String(data.product_id);
+  }
+
   const id = 'rfq_' + Date.now();
-  const refNo = data.reference_no || generateQuotationRefNumber(id);
+  const refNo = generateQuotationRefNumber(id);
 
   db.prepare(`
     INSERT INTO quotation_requests (
@@ -1336,19 +1442,19 @@ export function createQuotationRequest(data: {
   `).run(
     id,
     refNo,
-    data.product_id || null,
-    data.customer_name,
-    data.company_name || '',
-    data.email,
-    data.phone || '',
-    data.quantity_requested || 1,
-    data.custom_specs || ''
+    validatedProductId,
+    customerName,
+    String(data.company_name || '').trim().slice(0, 150),
+    email,
+    String(data.phone || '').trim().slice(0, 50),
+    rawQty,
+    String(data.custom_specs || '').trim().slice(0, 2000)
   );
 
   db.prepare(`
     INSERT INTO audit_logs (action, entity_type, entity_id, details)
     VALUES ('CREATE_RFQ', 'RFQ', ?, ?)
-  `).run(id, `Quotation request created with Ref ${refNo} by ${data.customer_name} (${data.company_name})`);
+  `).run(id, `Quotation request created with Ref ${refNo}`);
 
   return db.prepare('SELECT * FROM quotation_requests WHERE id = ?').get(id);
 }
@@ -1363,21 +1469,73 @@ export function getAllQuotationRequests() {
 }
 
 export function updateQuotationStatus(id: string, status: string) {
-  db.prepare('UPDATE quotation_requests SET status = ? WHERE id = ?').run(status, id);
+  const normalized = String(status || '').trim().toUpperCase();
+  if (!VALID_RFQ_STATUSES.has(normalized)) {
+    throw new Error('Invalid quotation status.');
+  }
+  const existing = db.prepare('SELECT id FROM quotation_requests WHERE id = ?').get(id);
+  if (!existing) {
+    throw new Error('Quotation request not found.');
+  }
+  db.prepare('UPDATE quotation_requests SET status = ? WHERE id = ?').run(normalized, id);
   return db.prepare('SELECT * FROM quotation_requests WHERE id = ?').get(id);
 }
 
 /**
- * Raw query execution for Admin SQL Explorer
+ * Read-only single-statement SQL execution for authenticated Admin SQL Explorer
  */
 export function executeRawQuery(sql: string, params: any[] = []) {
-  const trimmed = sql.trim();
-  if (trimmed.toUpperCase().startsWith('SELECT') || trimmed.toUpperCase().startsWith('PRAGMA')) {
-    const rows = db.prepare(trimmed).all(...params);
-    return { type: 'SELECT', rows, count: rows.length };
-  } else {
-    db.exec(trimmed);
-    return { type: 'EXEC', message: 'Executed query successfully' };
+  const cleaned = String(sql || '').trim().replace(/;+\s*$/, '');
+  if (!cleaned) {
+    throw new Error('SQL query is required.');
+  }
+  // Block multi-statement queries
+  if (cleaned.includes(';')) {
+    throw new Error('Multiple SQL statements are not permitted.');
+  }
+  const upper = cleaned.toUpperCase();
+  if (!upper.startsWith('SELECT ')) {
+    throw new Error('Admin SQL Console is restricted to read-only SELECT queries.');
+  }
+  if (/\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|ATTACH|DETACH|PRAGMA|VACUUM|REINDEX|ANALYZE)\b/i.test(cleaned)) {
+    throw new Error('Write or schema-modifying SQL keywords are not permitted.');
+  }
+  if (/\badmin_config\b/i.test(cleaned)) {
+    throw new Error('Access to internal authentication tables is restricted.');
+  }
+  const rows = db.prepare(cleaned).all(...params);
+  return { type: 'SELECT', rows, count: rows.length };
+}
+
+export function getAdminPasswordHash(): string | null {
+  const row = db
+    .prepare("SELECT value FROM admin_config WHERE key = 'admin_password_hash'")
+    .get() as { value?: string } | undefined;
+  return row?.value || null;
+}
+
+export function hasAdminPasswordHash(): boolean {
+  return getAdminPasswordHash() !== null;
+}
+
+export function claimAdminPasswordHash(hash: string): boolean {
+  db.exec('BEGIN IMMEDIATE;');
+  try {
+    const existing = db
+      .prepare("SELECT value FROM admin_config WHERE key = 'admin_password_hash'")
+      .get() as { value?: string } | undefined;
+    if (existing?.value) {
+      db.exec('ROLLBACK;');
+      return false;
+    }
+    db.prepare(
+      "INSERT INTO admin_config (key, value) VALUES ('admin_password_hash', ?)"
+    ).run(hash);
+    db.exec('COMMIT;');
+    return true;
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
   }
 }
 

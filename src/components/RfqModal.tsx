@@ -102,8 +102,8 @@ export const RfqModal: React.FC<RfqModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-      <div className="bg-[#F8F7F4] max-w-lg w-full p-6 shadow-2xl border border-black/15 my-auto text-[#111113]">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-0 overflow-hidden">
+      <div className="bg-[#F8F7F4] w-full h-full p-6 sm:p-8 shadow-2xl overflow-y-auto text-[#111113]">
         <div className="flex justify-between items-center mb-5 pb-3 border-b border-black/10">
           <div className="flex items-center gap-2.5">
             <div className="p-2 bg-[#111113] text-[#B8860B]">

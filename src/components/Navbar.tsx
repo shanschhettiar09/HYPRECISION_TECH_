@@ -1,14 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Anchor,
   Bot,
-  FileSpreadsheet,
   Menu,
   X,
   Database,
-  ShieldCheck,
-  ChevronRight,
-  ExternalLink,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -31,40 +26,62 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAi,
   onOpenRfq,
   onOpenAdmin,
-  dbHealthy,
-  totalProducts,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+
+  useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
+      setRevealed(true);
+      return;
+    }
+    const raf = requestAnimationFrame(() => setRevealed(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200/90 shadow-2xs">
+    <header
+      className="sticky top-0 z-40 bg-[#091830]/75 backdrop-blur-md border-b border-[#FAF5EA]/12"
+      style={{
+        opacity: revealed ? 1 : 0,
+        transform: revealed ? 'translateY(0)' : 'translateY(-0.75rem)',
+        transition: 'opacity 700ms cubic-bezier(0.2, 0, 0, 1) 150ms, transform 700ms cubic-bezier(0.2, 0, 0, 1) 150ms',
+      }}
+    >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 sm:h-20 flex items-center justify-between gap-4">
-        {/* Left: Brand Identity matching prototype */}
+        {/* Left: Brand Identity */}
         <div
           className="flex items-center gap-3 cursor-pointer select-none group"
           onClick={() => onSelectTab('overview')}
         >
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-amber-100/90 flex items-center justify-center text-amber-600 shadow-2xs group-hover:scale-105 transition-transform">
-            <Anchor size={20} className="stroke-[2.3]" />
+          <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-lg bg-[#FAF5EA] overflow-hidden border border-[#FAF5EA]/30 flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
+            <img
+              src="/assets/aistudio/WhatsApp_Image_2026-11-22_at_22.16.21_ef25e50b.jpeg"
+              alt="Hy-Precision Technology Logo"
+              className="w-full h-full object-contain"
+            />
           </div>
           <div>
-            <div className="text-sm sm:text-base font-extrabold tracking-tight text-amber-600 leading-tight">
+            <div className="text-sm sm:text-base font-bold tracking-tight text-[#FAF5EA] leading-tight">
               HY PRECISION TECHNOLOGIES
             </div>
-            <div className="text-[10px] sm:text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-              MARINE & OFFSHORE SYSTEMS
+            <div className="text-[10px] sm:text-[11px] font-semibold tracking-wider text-[#FF6B52] uppercase">
+              MARINE &amp; OFFSHORE SYSTEMS
             </div>
           </div>
         </div>
 
-        {/* Center: Desktop Navigation Tabs matching prototype */}
-        <nav className="hidden md:flex items-center space-x-6 lg:space-x-8 text-sm">
+        {/* Center: Flowstate-inspired Glass Link Pill */}
+        <nav className="hidden md:flex items-center gap-6 lg:gap-7 h-11 rounded-full border border-[#FAF5EA]/18 bg-[#FAF5EA]/8 backdrop-blur-md px-6 text-sm">
           <button
             onClick={() => onSelectTab('overview')}
-            className={`pb-1 transition-colors cursor-pointer ${
+            className={`transition-colors duration-150 cursor-pointer whitespace-nowrap ${
               activeTab === 'overview'
-                ? 'text-amber-600 font-semibold border-b-2 border-amber-500'
-                : 'text-slate-600 hover:text-slate-900 font-medium'
+                ? 'text-[#FF6B52] font-semibold'
+                : 'text-[#D6CFC0] hover:text-[#FAF5EA] font-medium'
             }`}
           >
             Overview
@@ -72,10 +89,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <button
             onClick={() => onSelectTab('catalogue')}
-            className={`pb-1 transition-colors cursor-pointer ${
+            className={`transition-colors duration-150 cursor-pointer whitespace-nowrap ${
               activeTab === 'catalogue'
-                ? 'text-amber-600 font-semibold border-b-2 border-amber-500'
-                : 'text-slate-600 hover:text-slate-900 font-medium'
+                ? 'text-[#FF6B52] font-semibold'
+                : 'text-[#D6CFC0] hover:text-[#FAF5EA] font-medium'
             }`}
           >
             Catalogue
@@ -86,74 +103,59 @@ export const Navbar: React.FC<NavbarProps> = ({
               onSelectTab('compare');
               onOpenCompare();
             }}
-            className={`pb-1 transition-colors flex items-center gap-1.5 cursor-pointer ${
+            className={`transition-colors duration-150 flex items-center gap-1.5 cursor-pointer whitespace-nowrap ${
               activeTab === 'compare'
-                ? 'text-amber-600 font-semibold border-b-2 border-amber-500'
-                : 'text-slate-600 hover:text-slate-900 font-medium'
+                ? 'text-[#FF6B52] font-semibold'
+                : 'text-[#D6CFC0] hover:text-[#FAF5EA] font-medium'
             }`}
           >
             <span>Compare</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 text-[11px] font-bold">
+            <span className="px-1.5 py-0.2 rounded-full bg-[#FF6B52] text-[#FAF5EA] text-[11px] font-bold">
               {compareCount > 0 ? compareCount : 2}
             </span>
           </button>
 
           <button
-            onClick={onOpenAi}
-            className={`pb-1 transition-colors cursor-pointer ${
-              activeTab === 'ai'
-                ? 'text-amber-600 font-semibold border-b-2 border-amber-500'
-                : 'text-slate-600 hover:text-slate-900 font-medium'
-            }`}
-          >
-            AI Assistant
-          </button>
-
-          <button
             onClick={() => onSelectTab('commercial')}
-            className={`pb-1 transition-colors cursor-pointer ${
+            className={`transition-colors duration-150 cursor-pointer whitespace-nowrap ${
               activeTab === 'commercial'
-                ? 'text-amber-600 font-semibold border-b-2 border-amber-500'
-                : 'text-slate-600 hover:text-slate-900 font-medium'
+                ? 'text-[#FF6B52] font-semibold'
+                : 'text-[#D6CFC0] hover:text-[#FAF5EA] font-medium'
             }`}
           >
             Commercial Sales
           </button>
         </nav>
 
-        {/* Right: Actions matching prototype */}
+        {/* Right: Cream Chrollo pill + Coral Request Quote pill */}
         <div className="flex items-center gap-2 sm:gap-3">
-          {/* AI Engineer button */}
           <button
             onClick={onOpenAi}
-            className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition cursor-pointer"
+            className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#FF6B52] bg-[#FF6B52] hover:bg-[#F0543B] text-[#FAF5EA] text-xs font-semibold shadow-sm transition-colors duration-150 cursor-pointer"
           >
-            <Bot size={15} className="text-amber-600" />
-            <span>AI Engineer</span>
+            <Bot size={15} className="text-[#FAF5EA]" />
+            <span>Chrollo</span>
           </button>
 
-          {/* Request Quote button */}
           <button
             onClick={onOpenRfq}
-            className="px-4 sm:px-5 py-2 rounded-lg bg-[#F59E0B] hover:bg-[#D97706] text-white text-xs sm:text-sm font-semibold shadow-xs hover:shadow transition-all cursor-pointer"
+            className="px-4 sm:px-5 py-2 rounded-full bg-[#FF6B52] hover:bg-[#F0543B] text-[#FAF5EA] text-xs sm:text-sm font-semibold shadow-sm transition-colors duration-150 cursor-pointer"
           >
             Request Quote
           </button>
 
-          {/* Admin Database Shortcut Icon */}
           <button
             onClick={onOpenAdmin}
             title="Database Console"
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+            className="p-2 rounded-full text-[#D6CFC0] hover:text-[#FAF5EA] hover:bg-[#FAF5EA]/10 transition-colors cursor-pointer"
             aria-label="Open Admin Database"
           >
             <Database size={16} />
           </button>
 
-          {/* Mobile hamburger */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition"
+            className="md:hidden p-2 rounded-lg text-[#FAF5EA] hover:bg-[#FAF5EA]/10 transition"
             aria-label="Toggle navigation menu"
           >
             {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
@@ -163,14 +165,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-slate-200 bg-white px-4 py-4 space-y-2 shadow-lg">
+        <div className="md:hidden border-t border-[#FAF5EA]/15 bg-[#091830]/95 backdrop-blur-md px-4 py-4 space-y-2 shadow-lg">
           <button
             onClick={() => {
               onSelectTab('overview');
               setMobileMenuOpen(false);
             }}
             className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${
-              activeTab === 'overview' ? 'bg-amber-50 text-amber-600 font-bold' : 'text-slate-700'
+              activeTab === 'overview' ? 'bg-[#FF6B52]/15 text-[#FF6B52] font-bold' : 'text-[#FAF5EA]'
             }`}
           >
             Overview
@@ -181,7 +183,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               setMobileMenuOpen(false);
             }}
             className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${
-              activeTab === 'catalogue' ? 'bg-amber-50 text-amber-600 font-bold' : 'text-slate-700'
+              activeTab === 'catalogue' ? 'bg-[#FF6B52]/15 text-[#FF6B52] font-bold' : 'text-[#FAF5EA]'
             }`}
           >
             Catalogue
@@ -191,10 +193,10 @@ export const Navbar: React.FC<NavbarProps> = ({
               onOpenCompare();
               setMobileMenuOpen(false);
             }}
-            className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-700 flex items-center justify-between"
+            className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-[#FAF5EA] flex items-center justify-between"
           >
             <span>Compare Fleet</span>
-            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">
+            <span className="px-2 py-0.5 rounded-full bg-[#FF6B52] text-[#FAF5EA] text-xs font-bold">
               {compareCount}
             </span>
           </button>
@@ -203,19 +205,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               onOpenAi();
               setMobileMenuOpen(false);
             }}
-            className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-700 flex items-center gap-2"
+            className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-[#FAF5EA] flex items-center gap-2"
           >
-            <Bot size={15} className="text-amber-600" />
-            <span>AI Assistant & Copilot</span>
+            <Bot size={15} className="text-[#FF6B52]" />
+            <span>Chrollo Engineering Copilot</span>
           </button>
           <button
             onClick={() => {
               onSelectTab('commercial');
               setMobileMenuOpen(false);
             }}
-            className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-700"
+            className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-[#FAF5EA]"
           >
-            Commercial Sales & ISO Quotations
+            Commercial Sales &amp; ISO Quotations
           </button>
         </div>
       )}
